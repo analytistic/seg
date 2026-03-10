@@ -2,6 +2,7 @@ from src.train.trainer_SegQFormer import SegQFormerTrainer
 from src.utils.arguments import TrainingArguments, ModelArguments, DataArguments, MultimodalArguments
 from transformers import HfArgumentParser
 from src.model.SegQFormer.modeling_SegQFormer import SegQFormerForSegmentation
+from src.model.SegQFormer.configuration_SegQFormer import SegQFormerConfig
 from transformers.models.mask2former.modeling_mask2former import Mask2FormerPixelDecoderEncoderMultiscaleDeformableAttention
 import torch
 from PIL import Image
@@ -23,12 +24,10 @@ def train():
     training_args = TrainingArguments.from_toml(config_path)
     multimodal_args = MultimodalArguments.from_toml(config_path)
 
-    model = SegQFormerForSegmentation.from_pretrained(
-        model_args.pretrained_model_name_or_path,
-        ignore_mismatched_sizes=True,
-        device_map='auto',
-        dtype='auto',
-    )
+
+    config = SegQFormerConfig.from_pretrained(model_args.pretrained_model_name_or_path)
+    model = SegQFormerForSegmentation(config)
+    
     dataset = GisSegDataset(
         datasets=data_args.datasets,
         datasets_path=data_args.datasets_path,

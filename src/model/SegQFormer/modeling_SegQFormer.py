@@ -543,6 +543,7 @@ class SegQFormerForSegmentation(Mask2FormerPreTrainedModel):
             "loss_ce": config.cross_entropy_weight,
             "loss_dice": config.dice_weight,
         }
+        
         self.criterion = SegQFormerLoss(config=config, weight_dict=self.weight_dict)
         self.post_init()
 
@@ -592,7 +593,7 @@ class SegQFormerForSegmentation(Mask2FormerPreTrainedModel):
         output_hidden_states: bool | None = None,
         output_auxiliary_logits: bool | None = None,
         output_attentions: bool | None = None,
-        output_loss_dict: bool | None = None,
+        output_loss_dict: bool | None = True,
         return_dict: bool | None = None,
         **kwargs,
     ) -> SegQFormerForSegmentationOutput | tuple[torch.Tensor]:

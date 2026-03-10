@@ -29,9 +29,10 @@ class MetricsComputer:
         self.processor = processor
     def __call__(self, eval_pred: EvalPrediction):
         outputs = eval_pred.predictions
+        loss_dict = outputs[0]
         labels = eval_pred.label_ids[0]
         semantic_segmentation = self.processor.post_process_semantic_segmentation(
-            outputs=outputs[0],
+            outputs=outputs[1],
             target_sizes=[(label.shape[0], label.shape[1]) for label in labels]
         )
         confusion_matrix = compute_confusion_matrix(
@@ -48,6 +49,7 @@ class MetricsComputer:
         }
         results.update({f'miou_class_{key}': value for key, value in miou.items()})
         results['miou_mean'] = np.mean(list(miou.values()))
+        results.update({f'{key}': value.mean() for key, value in loss_dict.items()})
 
         return results
 

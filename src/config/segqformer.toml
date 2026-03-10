@@ -6,10 +6,17 @@ datasets_path = 'data/dataset-preliminary round/data_dict.json'
 pretrained_model_name_or_path = 'src/model/SegQFormer'
 
 [training_args]
-output_dir = "outputs"
+seed = 42
+output_dir = "outputs/model_output/SegQFormer/"
+num_train_epochs = 5
+optim = "adamw_torch"
+learning_rate = 1e-4
+weight_decay = 0.01
 lr_scheduler_type = "cosine"
 report_to = "tensorboard"
 logging_steps = 10
+logging_dir = "outputs/tb/SegQFormer/"
+logging_first_step = true
 save_strategy = "epoch"
 save_total_limit = 1
 eval_strategy = "epoch"
@@ -17,6 +24,7 @@ warmup_ratio = 0.05
 eval_on_start = true 
 per_device_train_batch_size = 4
 per_device_eval_batch_size = 4
+
 
 [multimodal_args]
 pretrained_model_name_or_path = 'src/model/SegQFormer'

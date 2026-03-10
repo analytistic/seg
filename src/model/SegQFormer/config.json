@@ -2306,7 +2306,7 @@
   "oversample_ratio": 3.0,
   "pre_norm": false,
   "torch_dtype": "float32",
-  "train_num_points": 12544,
+  "train_num_points": 162144,
   "transformers_version": null,
   "use_auxiliary_loss": true
 }
