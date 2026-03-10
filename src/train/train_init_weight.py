@@ -27,7 +27,7 @@ def train():
 
     config = SegQFormerConfig.from_pretrained(model_args.pretrained_model_name_or_path)
     model = SegQFormerForSegmentation(config)
-    
+
     dataset = GisSegDataset(
         datasets=data_args.datasets,
         datasets_path=data_args.datasets_path,
@@ -35,7 +35,7 @@ def train():
     )
     
 
-    train_size = int(0.999 * len(dataset))
+    train_size = int(0.99 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, eval_dataset = torch.utils.data.random_split(
         dataset, 

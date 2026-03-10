@@ -36,7 +36,7 @@ def train():
     )
     
 
-    train_size = int(0.999 * len(dataset))
+    train_size = int(0.99 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, eval_dataset = torch.utils.data.random_split(
         dataset, 
