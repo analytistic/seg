@@ -5,9 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "accelerate>=1.13.0",
     "pillow>=12.1.1",
     "requests>=2.32.5",
     "scipy>=1.15.3",
+    "setuptools==69.5.1",
+    "tensorboard>=2.20.0",
+    "toml>=0.10.2",
     "torch>=2.10.0",
     "transformers>=5.2.0",
 ]
+
+[tool.pyright]
+typeCheckingMode = "basic"

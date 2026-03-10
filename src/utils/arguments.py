@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Sequence
 import transformers
+import toml
+
 
 @dataclass
 class DataArguments:
@@ -17,9 +19,20 @@ class DataArguments:
         },
     )
 
+    @classmethod
+    def from_toml(cls, toml_path: Optional[str] = None):
+        if toml_path is not None:
+            with open(toml_path, 'r') as f:
+                data = toml.load(f)
+                args = data.get('data_args', {})
+            return cls(**args)
+        else:
+            return cls()
+    
+
 @dataclass
 class ModelArguments:
-    model_name_or_path: str = field(
+    pretrained_model_name_or_path: str = field(
         default="",
         metadata={
             "help": "model name or path"
@@ -37,6 +50,15 @@ class ModelArguments:
             "help": "Whether to freeze the backbone"
         },
     )
+    @classmethod
+    def from_toml(cls, toml_path: Optional[str] = None):
+        if toml_path is not None:
+            with open(toml_path, 'r') as f:
+                data = toml.load(f)
+                args = data.get('model_args', {})
+            return cls(**args)
+        else:
+            return cls()
 
 
 @dataclass
@@ -50,12 +72,30 @@ class TrainingArguments(transformers.TrainingArguments):
             "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
     )
+    @classmethod
+    def from_toml(cls, toml_path: Optional[str] = None):
+        if toml_path is not None:
+            with open(toml_path, 'r') as f:
+                data = toml.load(f)
+                args = data.get('training_args', {})
+            return cls(**args)
+        else:
+            return cls()
 
 @dataclass
 class MultimodalArguments:
-    image_processor_name_or_path: Optional[str] = field(
+    pretrained_model_name_or_path: Optional[str] = field(
         default=None,
         metadata={
             "help": "Path to pretrained image processor or model identifier from huggingface.co/models."
         },
     )
+    @classmethod
+    def from_toml(cls, toml_path: Optional[str] = None):
+        if toml_path is not None:
+            with open(toml_path, 'r') as f:
+                data = toml.load(f)
+                args = data.get('multimodal_args', {})
+            return cls(**args)
+        else:
+            return cls()

@@ -12,3 +12,11 @@ wheels/
 # data
 data/
 
+# outputs
+outputs/
+
+# safetensors
+*.safetensors
+
+
+

@@ -1,0 +1,22 @@
+[data_args]
+datasets = 'gis'
+datasets_path = 'data/dataset-preliminary round/data_dict.json'
+
+[model_args]
+pretrained_model_name_or_path = 'src/model/SegQFormer'
+
+[training_args]
+output_dir = "outputs"
+lr_scheduler_type = "cosine"
+report_to = "tensorboard"
+logging_steps = 10
+save_strategy = "epoch"
+save_total_limit = 1
+eval_strategy = "epoch"
+warmup_ratio = 0.05
+eval_on_start = true 
+per_device_train_batch_size = 4
+per_device_eval_batch_size = 4
+
+[multimodal_args]
+pretrained_model_name_or_path = 'src/model/SegQFormer'

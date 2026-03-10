@@ -1,11 +1,14 @@
-from train.trainer_SegQFormer import SegQFormerTrainer
-from src.utils.arguments import TrainingArguments, ModelArguments, DataArguments
-from transformers import HfArgumentParser, TrainingArguments
-from transformers import Mask2FormerModel, AutoImageProcessor, Mask2FormerForUniversalSegmentation
+from src.train.trainer_SegQFormer import SegQFormerTrainer
+from src.utils.arguments import TrainingArguments, ModelArguments, DataArguments, MultimodalArguments
+from transformers import HfArgumentParser
+from src.model.SegQFormer.modeling_SegQFormer import SegQFormerForSegmentation
 from transformers.models.mask2former.modeling_mask2former import Mask2FormerPixelDecoderEncoderMultiscaleDeformableAttention
 import torch
 from PIL import Image
 import requests
+from src.data.gis_dataset import GisSegDataset
+from src.data import DataCollatorForSupervisedDataset
+from src.train.eval import MetricsComputer
 
 
 
@@ -13,15 +16,44 @@ import requests
 def train():
     """Train the SegFormer model."""
     # args
-    parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    # parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
+    config_path = 'src/config/segqformer.toml'
+    model_args = ModelArguments.from_toml(config_path)
+    data_args = DataArguments.from_toml(config_path)
+    training_args = TrainingArguments.from_toml(config_path)
+    multimodal_args = MultimodalArguments.from_toml(config_path)
 
+    model = SegQFormerForSegmentation.from_pretrained(
+        model_args.pretrained_model_name_or_path,
+        ignore_mismatched_sizes=True
+    )
+    dataset = GisSegDataset(
+        datasets=data_args.datasets,
+        datasets_path=data_args.datasets_path,
+        multimodal_args=multimodal_args
+    )
     
 
-    # model
-    processor = AutoImageProcessor.from_pretrained("facebook/mask2former-swin-tiny-coco-instance")
-    model = Mask2FormerForUniversalSegmentation.from_pretrained("facebook/mask2former-swin-tiny-coco-instance")
-    inputs = processor(images=image, return_tensors="pt")
+    train_size = int(0.999 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, eval_dataset = torch.utils.data.random_split(
+        dataset, 
+        [train_size, val_size], 
+        generator=torch.Generator().manual_seed(42)
+    )
+    
+    trainer = SegQFormerTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        data_collator=DataCollatorForSupervisedDataset(),
+        compute_metrics=MetricsComputer(dataset.processor),
+        processing_class=dataset.processor
+    )
+
+    trainer.train()
+
 
     # dataset
 
