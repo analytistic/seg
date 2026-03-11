@@ -98,6 +98,8 @@ class SegQFormerConfig(Mask2FormerConfig):
         class_weight: float = 2.0,
         mask_weight: float = 5.0,
         cross_entropy_weight: float = 5.0,
+        bce_weight: float = 25.0,
+        water_dice_weight: float = 30.0,
         dice_weight: float = 5.0,
         train_num_points: int = 12544,
         oversample_ratio: float = 3.0,
@@ -141,6 +143,8 @@ class SegQFormerConfig(Mask2FormerConfig):
         **kwargs,
         )
         self.cross_entropy_weight = cross_entropy_weight
+        self.bce_weight = bce_weight
+        self.water_dice_weight = water_dice_weight
 
 
 __all__ = ["SegQFormerConfig"]

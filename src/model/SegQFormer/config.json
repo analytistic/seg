@@ -2113,6 +2113,8 @@
   "decoder_layers": 10,
   "cross_entropy_weight": 5.0,
   "dice_weight": 5.0,
+  "bce_weight": 25.0,
+  "water_dice_weight": 30.0,
   "dim_feedforward": 2048,
   "dropout": 0.0,
   "encoder_feedforward_dim": 1024,

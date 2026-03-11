@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Sequence
+from typing import Optional, List
 import transformers
 import toml
 
@@ -71,6 +71,12 @@ class TrainingArguments(transformers.TrainingArguments):
             "help":
             "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
+    )
+    class_weight: Optional[List[List[float]]] = field(
+        default=None,
+        metadata={
+            "help": "Class weights for handling class imbalance."
+        }
     )
     @classmethod
     def from_toml(cls, toml_path: Optional[str] = None):

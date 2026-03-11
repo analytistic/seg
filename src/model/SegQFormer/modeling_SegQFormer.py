@@ -10,6 +10,19 @@ import torch
 from dataclasses import dataclass
 
 
+def sigmoid_bce_loss(inputs: torch.Tensor, labels: torch.Tensor, class_id: int) -> torch.Tensor:
+    r"""
+    transform the multi-class predict into binary predict to fix on class_id
+    
+    """
+    prods = inputs.softmax(dim=1)[:, class_id, ...]
+    labels_binary = (labels == class_id).float()
+    criterion = nn.BCEWithLogitsLoss(reduction="mean")
+    loss = criterion(prods, labels_binary)
+    return loss
+
+
+
 # Copied from transformers.models.maskformer.modeling_maskformer.dice_loss
 def dice_loss(inputs: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor | None = None) -> torch.Tensor:
     r"""
@@ -56,9 +69,9 @@ def sigmoid_cross_entropy_loss(inputs: torch.Tensor, labels: torch.Tensor, weigh
     Returns:
         loss (`torch.Tensor`): The computed loss.
     """
+
     criterion = nn.CrossEntropyLoss(weight=weight, reduction="mean")
     loss = criterion(inputs, labels.to(dtype=torch.long))
-
     return loss
 
 
@@ -496,6 +509,8 @@ class SegQFormerLoss(nn.Module):
         losses = {
             'loss_ce': sigmoid_cross_entropy_loss(point_logits, point_multi_labels),
             'loss_dice': dice_loss(point_logits, point_binary_labels),
+            'loss_bce': sigmoid_bce_loss(point_logits, point_binary_labels[:, 3, ...], class_id=3),
+            'loss_water_dice': dice_loss(point_logits[:, 3, ...], point_binary_labels[:, 3, ...]),
         }
 
         del pred_masks
@@ -542,6 +557,8 @@ class SegQFormerForSegmentation(Mask2FormerPreTrainedModel):
         self.weight_dict: dict[str, float] = {
             "loss_ce": config.cross_entropy_weight,
             "loss_dice": config.dice_weight,
+            "loss_bce": config.bce_weight,
+            "loss_water_dice": config.water_dice_weight,
         }
         
         self.criterion = SegQFormerLoss(config=config, weight_dict=self.weight_dict)
