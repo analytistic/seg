@@ -16,7 +16,7 @@ def sigmoid_bce_loss(inputs: torch.Tensor, labels: torch.Tensor, class_id: int) 
     
     """
     prods = inputs.softmax(dim=1)[:, class_id, ...]
-    labels_binary = (labels == class_id).float()
+    labels_binary = labels[:, class_id, ...].to(torch.float32)
     criterion = nn.BCEWithLogitsLoss(reduction="mean")
     loss = criterion(prods, labels_binary)
     return loss
@@ -509,7 +509,7 @@ class SegQFormerLoss(nn.Module):
         losses = {
             'loss_ce': sigmoid_cross_entropy_loss(point_logits, point_multi_labels),
             'loss_dice': dice_loss(point_logits, point_binary_labels),
-            'loss_bce': sigmoid_bce_loss(point_logits, point_binary_labels[:, 3, ...], class_id=3),
+            'loss_bce': sigmoid_bce_loss(point_logits, point_binary_labels, class_id=3),
             'loss_water_dice': dice_loss(point_logits[:, 3, ...], point_binary_labels[:, 3, ...]),
         }
 
