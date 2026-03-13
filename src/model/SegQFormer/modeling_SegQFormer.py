@@ -11,22 +11,33 @@ import torch
 from dataclasses import dataclass
 
 
-
 def sigmoid_bce_loss(inputs: torch.Tensor, labels: torch.Tensor, class_id: int) -> torch.Tensor:
     r"""
     transform the multi-class predict into binary predict to fix on class_id
     
     """
-    prods = inputs.softmax(dim=1)[:, class_id, ...]
+    prods = inputs.sigmoid()[:, class_id, ...]
     labels_binary = labels[:, class_id, ...].to(torch.float32)
-    criterion = nn.BCEWithLogitsLoss(reduction="mean")
+    criterion = nn.BCELoss(reduction="mean")
     loss = criterion(prods, labels_binary)
     return loss
 
+# Copied from transformers.models.maskformer.modeling_maskformer.dice_loss
+def dice_loss(inputs: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor | None = None) -> torch.Tensor:
+    
+    probs = inputs.softmax(dim=1)
+    numerator = 2 * (probs * labels).sum(-1)
+    denominator = probs.sum(-1) + labels.sum(-1)
+    loss = 1 - (numerator + 1) / (denominator + 1)
+    loss = loss.mean(0)
+    if weight is not None:
+        loss = loss * weight
+    loss = loss.sum()
+    return loss
 
 
 # Copied from transformers.models.maskformer.modeling_maskformer.dice_loss
-def dice_loss(inputs: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor | None = None) -> torch.Tensor:
+def sigmoid_dice_loss(inputs: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor | None = None) -> torch.Tensor:
     r"""
     Compute the DICE loss, similar to generalized IOU for masks as follows:
 
@@ -59,7 +70,7 @@ def dice_loss(inputs: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor |
     return loss
 
 
-def sigmoid_cross_entropy_loss(inputs: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor | None = None) -> torch.Tensor:
+def cross_entropy_loss(inputs: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor | None = None) -> torch.Tensor:
     r"""
     Args:
         inputs (`torch.Tensor`):
@@ -520,10 +531,10 @@ class SegQFormerLoss(nn.Module):
         point_logits = sample_point(pred_masks, point_coordinates, align_corners=False, mode='bilinear').squeeze(1)
 
         losses = {
-            'loss_ce': sigmoid_cross_entropy_loss(point_logits, point_multi_labels),
+            'loss_ce': cross_entropy_loss(point_logits, point_multi_labels),
             'loss_dice': dice_loss(point_logits, point_binary_labels),
             'loss_bce': sigmoid_bce_loss(point_logits, point_binary_labels, class_id=3),
-            'loss_water_dice': dice_loss(point_logits[:, 3, ...], point_binary_labels[:, 3, ...]),
+            'loss_water_dice': sigmoid_dice_loss(point_logits[:, 3, ...], point_binary_labels[:, 3, ...]),
         }
 
         del pred_masks
@@ -553,7 +564,67 @@ class SegQFormerLoss(nn.Module):
                 loss_dict = {f"{key}_{idx}": value for key, value in loss_dict.items()}
                 losses.update(loss_dict)
         return losses
-            
+
+class SegFormerTokenMix(nn.Module):     
+    def __init__(self, query_size: int, embed_dim: int, num_heads: int, device=None, dtype=None):  
+        super().__init__()
+        factory_kwargs = {"device": device, "dtype": dtype}
+        assert num_heads == query_size, "num_heads should be equal to query_size for SegFormerTokenMix"
+        self.head_dim = embed_dim // num_heads
+        self.num_heads = num_heads
+        
+
+
+    def forward(self, hidden_states, position_embeddings, attention_mask=None, output_attentions=True, device=None):
+        B, T, D = hidden_states.shape
+        hidden_states = hidden_states + position_embeddings
+        res = hidden_states
+        hidden_states = hidden_states.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        hidden_states = hidden_states.contiguous().view(B, T, D)
+        return (hidden_states + res)/2, None
+
+
+class SegFormerMoeFFN(nn.Module):
+    """
+    Heterogeneous attention that
+    query: 
+    for input B, T, D router to T * FFN experts and get output of B, T, D Parallel
+    """
+    def __init__(self, in_dim, ffn_dim, n_tokens, act_fn, activation_dropout=0.0, dropout=0.0, dtype=None, device=None):
+        super().__init__()
+        factory_kwargs = {"device": device, "dtype": dtype}
+        
+        self.activation_fn = ACT2FN[act_fn]
+        self.linear1_weight = nn.Parameter(torch.empty(n_tokens, in_dim, ffn_dim, **factory_kwargs))
+        self.linear2_weight = nn.Parameter(torch.empty(n_tokens, ffn_dim, in_dim, **factory_kwargs))
+        self.linear1_bias = nn.Parameter(torch.empty(n_tokens, ffn_dim, **factory_kwargs))
+        self.linear2_bias = nn.Parameter(torch.empty(n_tokens, in_dim, **factory_kwargs))
+
+        self.activation_dropout = activation_dropout
+        self.dropout = dropout
+
+        self._reset_parameters()
+
+    def _reset_parameters(self) -> None:
+        bound1 = (6.0 / (self.linear1_weight.shape[1] + self.linear1_weight.shape[2])) ** 0.5
+        nn.init.uniform_(self.linear1_weight, -bound1, bound1)
+        
+        bound2 = (6.0 / (self.linear2_weight.shape[1] + self.linear2_weight.shape[2])) ** 0.5
+        nn.init.uniform_(self.linear2_weight, -bound2, bound2)
+        
+        nn.init.constant_(self.linear1_bias, 0.0)
+        nn.init.constant_(self.linear2_bias, 0.0)
+
+    def forward(self, hidden_states):
+
+        hidden_states = torch.bmm(hidden_states, self.linear1_weight) + self.linear1_bias.unsqueeze(1)
+        hidden_states = self.activation_fn(hidden_states)
+        hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
+        
+        hidden_states = torch.bmm(hidden_states, self.linear2_weight) + self.linear2_bias.unsqueeze(1)
+        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+
+        return hidden_states
 
 class SegFormerHeteroCrossAttention(nn.Module):
     """
@@ -585,41 +656,44 @@ class SegFormerHeteroCrossAttention(nn.Module):
         self.query_proj_weight_R = nn.Parameter(
             torch.empty((rank, embed_dim * query_size), **factory_kwargs)
         )
-        self.in_proj_weight = nn.Parameter(
-            torch.empty((3 * embed_dim, embed_dim), **factory_kwargs)
+        self.k_proj_weight = nn.Parameter(
+            torch.empty((embed_dim, embed_dim), **factory_kwargs)
         )
-        self.register_parameter("q_proj_weight", None)
-        self.register_parameter("k_proj_weight", None)
-        self.register_parameter("v_proj_weight", None)
+        self.v_proj_weight = nn.Parameter(
+            torch.empty((embed_dim, embed_dim), **factory_kwargs)
+        )
+
 
         if bias:
-            self.in_proj_bias = nn.Parameter(torch.empty(3 * embed_dim, **factory_kwargs))
+            self.q_proj_bias = nn.Parameter(torch.empty(embed_dim, **factory_kwargs))
+            self.k_proj_bias = nn.Parameter(torch.empty(embed_dim, **factory_kwargs))
+            self.v_proj_bias = nn.Parameter(torch.empty(embed_dim, **factory_kwargs))
         else:
-            self.register_parameter("in_proj_bias", None)
+            self.register_parameter("q_proj_bias", None)
+            self.register_parameter("k_proj_bias", None)
+            self.register_parameter("v_proj_bias", None)
 
         self.out_proj = nn.modules.linear.NonDynamicallyQuantizableLinear(
             embed_dim, embed_dim, bias=bias, **factory_kwargs
         )
-        if add_bias_kv:
-            self.bias_k = nn.Parameter(torch.empty((1, 1, embed_dim), **factory_kwargs))
-            self.bias_v = nn.Parameter(torch.empty((1, 1, embed_dim), **factory_kwargs))
-        else:
-            self.bias_k = self.bias_v = None
-
-        self.add_zero_attn = add_zero_attn
 
         self._reset_parameters()
 
     def _reset_parameters(self) -> None:
-        nn.init.xavier_uniform_(self.in_proj_weight)
+        nn.init.xavier_uniform_(self.query_proj_weight_L)
+        nn.init.xavier_uniform_(self.query_proj_weight_R)
+        nn.init.xavier_uniform_(self.k_proj_weight)
+        nn.init.xavier_uniform_(self.v_proj_weight)
 
-        if self.in_proj_bias is not None:
-            nn.init.constant_(self.in_proj_bias, 0.0)
+        if self.q_proj_bias is not None:
+            nn.init.constant_(self.q_proj_bias, 0.0)
+        if self.k_proj_bias is not None:
+            nn.init.constant_(self.k_proj_bias, 0.0)
+        if self.v_proj_bias is not None:
+            nn.init.constant_(self.v_proj_bias, 0.0)
+        if self.out_proj.bias is not None:
             nn.init.constant_(self.out_proj.bias, 0.0)
-        if self.bias_k is not None:
-            nn.init.xavier_normal_(self.bias_k)
-        if self.bias_v is not None:
-            nn.init.xavier_normal_(self.bias_v)
+
     
     def __setstate__(self, state):
         # Support loading old MultiheadAttention checkpoints generated by v1.1.0
@@ -648,15 +722,10 @@ class SegFormerHeteroCrossAttention(nn.Module):
         
         q = q_projected.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         
-        w_k = self.in_proj_weight[self.embed_dim : 2 * self.embed_dim, :]
-        w_v = self.in_proj_weight[2 * self.embed_dim : 3 * self.embed_dim, :]
-
-        b_k = self.in_proj_bias[self.embed_dim : 2 * self.embed_dim] if self.in_proj_bias is not None else None
-        b_v = self.in_proj_bias[2 * self.embed_dim : 3 * self.embed_dim] if self.in_proj_bias is not None else None
         
         S_k, B_k, _ = key.shape
-        k = torch.nn.functional.linear(key, w_k, b_k).view(S_k, B_k, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
-        v = torch.nn.functional.linear(value, w_v, b_v).view(S_k, B_k, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
+        k = torch.nn.functional.linear(key, self.k_proj_weight, self.k_proj_bias).view(S_k, B_k, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
+        v = torch.nn.functional.linear(value, self.v_proj_weight, self.v_proj_bias).view(S_k, B_k, self.num_heads, self.head_dim).permute(1, 2, 0, 3)
 
         attn_output = torch.nn.functional.scaled_dot_product_attention(
             query=q,
@@ -699,22 +768,19 @@ class SegQFormerMaskedAttentionDecoderLayer(GradientCheckpointingLayer):
         self.config = config
         self.embed_dim = self.config.hidden_dim
         self.pre_norm = self.config.pre_norm
-        self.self_attn = Mask2FormerAttention(
+        self.self_attn = SegFormerTokenMix(
+            query_size=config.num_queries,
             embed_dim=self.embed_dim,
-            num_heads=config.num_attention_heads,
-            dropout=config.dropout,
-            is_decoder=True,
+            num_heads=config.num_queries,
         )
 
         self.dropout = self.config.dropout
-        self.activation_fn = ACT2FN[self.config.activation_function]
         self.activation_dropout = self.config.dropout
 
         self.self_attn_layer_norm = nn.LayerNorm(self.embed_dim)
         self.cross_attn = SegFormerHeteroCrossAttention(query_size=config.num_queries, embed_dim=self.embed_dim, num_heads=config.num_attention_heads, rank=None, dropout=config.dropout)
         self.cross_attn_layer_norm = nn.LayerNorm(self.embed_dim)
-        self.fc1 = nn.Linear(self.embed_dim, self.config.dim_feedforward)
-        self.fc2 = nn.Linear(self.config.dim_feedforward, self.embed_dim)
+        self.ffn = SegFormerMoeFFN(in_dim=self.embed_dim, ffn_dim=self.config.dim_feedforward, n_tokens=config.num_queries, act_fn=self.config.activation_function, activation_dropout=self.activation_dropout, dropout=self.dropout)
         self.final_layer_norm = nn.LayerNorm(self.embed_dim)
 
     def with_pos_embed(self, tensor, pos: torch.Tensor | None):
@@ -765,10 +831,7 @@ class SegQFormerMaskedAttentionDecoderLayer(GradientCheckpointingLayer):
 
         # Fully Connected
         residual = hidden_states
-        hidden_states = self.activation_fn(self.fc1(hidden_states))
-        hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
-        hidden_states = self.fc2(hidden_states)
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = self.ffn(hidden_states)
         hidden_states = residual + hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
 
@@ -827,10 +890,7 @@ class SegQFormerMaskedAttentionDecoderLayer(GradientCheckpointingLayer):
         # Fully Connected
         residual = hidden_states
         hidden_states = self.final_layer_norm(hidden_states)
-        hidden_states = self.activation_fn(self.fc1(hidden_states))
-        hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
-        hidden_states = self.fc2(hidden_states)
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = self.ffn(hidden_states)
         hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
