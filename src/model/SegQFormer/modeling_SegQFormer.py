@@ -25,7 +25,7 @@ def sigmoid_bce_loss(inputs: torch.Tensor, labels: torch.Tensor, class_id: int) 
 # Copied from transformers.models.maskformer.modeling_maskformer.dice_loss
 def dice_loss(inputs: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor | None = None) -> torch.Tensor:
     
-    probs = inputs.softmax(dim=1)
+    probs = inputs.sigmoid()
     numerator = 2 * (probs * labels).sum(-1)
     denominator = probs.sum(-1) + labels.sum(-1)
     loss = 1 - (numerator + 1) / (denominator + 1)
@@ -768,10 +768,15 @@ class SegQFormerMaskedAttentionDecoderLayer(GradientCheckpointingLayer):
         self.config = config
         self.embed_dim = self.config.hidden_dim
         self.pre_norm = self.config.pre_norm
-        self.self_attn = SegFormerTokenMix(
-            query_size=config.num_queries,
+        # self.self_attn = SegFormerTokenMix(
+        #     query_size=config.num_queries,
+        #     embed_dim=self.embed_dim,
+        #     num_heads=config.num_queries,
+        # )
+        self.self_attn = Mask2FormerAttention(
             embed_dim=self.embed_dim,
-            num_heads=config.num_queries,
+            num_heads=config.num_attention_heads,
+            dropout=config.dropout,
         )
 
         self.dropout = self.config.dropout
@@ -780,6 +785,8 @@ class SegQFormerMaskedAttentionDecoderLayer(GradientCheckpointingLayer):
         self.self_attn_layer_norm = nn.LayerNorm(self.embed_dim)
         self.cross_attn = SegFormerHeteroCrossAttention(query_size=config.num_queries, embed_dim=self.embed_dim, num_heads=config.num_attention_heads, rank=None, dropout=config.dropout)
         self.cross_attn_layer_norm = nn.LayerNorm(self.embed_dim)
+        self.feature_cross_attn = nn.MultiheadAttention(embed_dim=self.embed_dim, num_heads=config.num_attention_heads, dropout=config.dropout)
+        self.cross_attn_feature_layer_norm = nn.LayerNorm(self.embed_dim)
         self.ffn = SegFormerMoeFFN(in_dim=self.embed_dim, ffn_dim=self.config.dim_feedforward, n_tokens=config.num_queries, act_fn=self.config.activation_function, activation_dropout=self.activation_dropout, dropout=self.dropout)
         self.final_layer_norm = nn.LayerNorm(self.embed_dim)
 
@@ -814,6 +821,24 @@ class SegQFormerMaskedAttentionDecoderLayer(GradientCheckpointingLayer):
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
         hidden_states = self.cross_attn_layer_norm(hidden_states)
+
+        # Feature(Cross)-Attention Block
+        residual = encoder_hidden_states[level_index]
+        encoder_hidden_states_level, _ = self.feature_cross_attn(
+            query=encoder_hidden_states[level_index],
+            key=hidden_states,
+            value=hidden_states,
+            attn_mask=None,
+            key_padding_mask=None,
+        )
+        encoder_hidden_states_level = nn.functional.dropout(encoder_hidden_states_level, p=self.dropout, training=self.training)
+        encoder_hidden_states_level = residual + encoder_hidden_states_level
+        encoder_hidden_states_level = self.cross_attn_feature_layer_norm(encoder_hidden_states_level)
+        if self.training:
+            if not torch.isfinite(encoder_hidden_states_level).all():
+                clamp_value = torch.finfo(encoder_hidden_states_level.dtype).max - 1000
+                encoder_hidden_states_level = torch.clamp(encoder_hidden_states_level, min=-clamp_value, max=clamp_value)
+        encoder_hidden_states[level_index] = encoder_hidden_states_level
 
         # Self Attention Block
         residual = hidden_states
