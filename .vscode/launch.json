@@ -21,6 +21,16 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": []
+        },
+        {
+            "name": "Python infer",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "inference.infer_gid_test",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": []
         }
     ]
 }

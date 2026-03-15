@@ -342,14 +342,13 @@ class SegQFormerImageProcessor(Mask2FormerImageProcessor):
         do_reduce_labels = self.do_reduce_labels if do_reduce_labels is None else do_reduce_labels
         results = []
         semantic_segmentation = self.post_process_semantic_segmentation(outputs, target_sizes=target_sizes)
-        for label_id, segmentation in enumerate(semantic_segmentation):
-            if do_reduce_labels:
-                label_id += 1
+        for idx, segmentation in enumerate(semantic_segmentation):
+            maskes = {}
+            for label_id in self.id2label.keys():
+                label = self.id2label[label_id] if self.id2label is not None else str(label_id)
+                maskes[f"{label}"] = ((segmentation == np.array(label_id).astype(np.uint8))).astype(np.uint8)
             results.append(
-                {
-                    "label": self.id2label[label_id] if self.id2label is not None else label_id,
-                    "mask": (segmentation == label_id).to(torch.int32)
-                }
+                maskes
             )
         return results
     

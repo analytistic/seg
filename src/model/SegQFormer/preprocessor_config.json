@@ -23,5 +23,11 @@
     "height": 512,
     "width": 512
   },
-  "size_divisor": 32
+  "size_divisor": 32,
+  "id2label": {
+    "0": "Background",
+    "1": "Built-up",
+    "2": "Farmland",
+    "3": "Water"
+  }
 }
