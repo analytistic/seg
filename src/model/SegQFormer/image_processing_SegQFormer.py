@@ -312,7 +312,8 @@ class SegQFormerImageProcessor(Mask2FormerImageProcessor):
         )
     
     def post_process_semantic_segmentation(
-        self, outputs: SegQFormerForSegmentationOutput | torch.Tensor | np.ndarray, target_sizes: list[tuple[int, int]] | None = None
+        self, outputs: SegQFormerForSegmentationOutput | torch.Tensor | np.ndarray, target_sizes: list[tuple[int, int]] | None = None,
+        thr = 0.8
     ) -> np.ndarray:
         masks_queries_logits = outputs.masks_queries_logits if isinstance(outputs, SegQFormerForSegmentationOutput) else outputs
         segmentation = torch.from_numpy(masks_queries_logits) if isinstance(masks_queries_logits, np.ndarray) else masks_queries_logits
@@ -322,10 +323,13 @@ class SegQFormerImageProcessor(Mask2FormerImageProcessor):
             assert batch_size == len(target_sizes), "Make sure the batch size of the outputs and the target sizes match."
             semantic_segmentation = []
             for idx in range(batch_size):
-                semantic_segmentation.append(
-                    torch.nn.functional.interpolate(
+                seg = torch.nn.functional.interpolate(
                         segmentation[idx:idx+1], size=target_sizes[idx], mode="bilinear", align_corners=False
-                    )[0].argmax(dim=0)
+                )[0]
+                seg_id = seg.argmax(dim=0)
+                seg_id[torch.where(seg[-1, ...] > thr)] = 3 
+                semantic_segmentation.append(
+                    seg_id
                 )
         else:
             semantic_segmentation = segmentation.argmax(dim=1)

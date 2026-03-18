@@ -7,8 +7,8 @@ from transformers.models.mask2former.modeling_mask2former import Mask2FormerPixe
 import torch
 from PIL import Image
 import requests
-from src.data.gis_dataset import GisSegDataset
-from src.data import DataCollatorForSupervisedDataset
+from src.datasets.gis_dataset import GisSegDataset
+from src.datasets import DataCollatorForSupervisedDataset
 from src.train.eval import MetricsComputer
 
 
