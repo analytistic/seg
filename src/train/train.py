@@ -9,6 +9,7 @@ import requests
 from src.datasets.gis_dataset import GisSegDataset
 from src.datasets import DataCollatorForSupervisedDataset
 from src.train.eval import MetricsComputer
+from transformers import set_seed
 
 
 
@@ -22,6 +23,7 @@ def train():
     data_args = DataArguments.from_toml(config_path)
     training_args = TrainingArguments.from_toml(config_path)
     multimodal_args = MultimodalArguments.from_toml(config_path)
+    set_seed(training_args.seed)
 
     model = SegQFormerForSegmentation.from_pretrained(
         model_args.pretrained_model_name_or_path,
